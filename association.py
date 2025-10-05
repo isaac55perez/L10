@@ -3,6 +3,39 @@ from itertools import combinations
 from typing import List, Set, Dict, Tuple
 
 class AprioriAssociation:
+    """
+    Apriori Association Rule Mining Algorithm
+    
+    Time Complexity Analysis:
+    ------------------------
+    Let:
+    - n = number of transactions
+    - m = number of items (features)
+    - k = size of largest frequent itemset
+    
+    1. Finding frequent 1-itemsets: O(n*m)
+       - Must scan each transaction for each item
+    
+    2. Generating candidate k-itemsets: O(l^2 * k)
+       where l is the number of frequent (k-1)-itemsets
+       - Requires comparing each pair of (k-1)-itemsets
+    
+    3. Counting support for candidates: O(n*c*k)
+       where c is the number of candidate k-itemsets
+       - Must scan each transaction for each candidate
+    
+    4. Rule generation: O(2^k * k)
+       - For each frequent itemset of size k, must generate all possible subsets
+    
+    Overall worst-case complexity: O(n*m + 2^m)
+    - The 2^m term comes from the potential number of itemsets
+    - In practice, the min_support threshold greatly reduces this
+    
+    Space Complexity: O(2^m)
+    - Must store frequent itemsets and candidate itemsets
+    - Again, min_support reduces this significantly in practice
+    """
+    
     def __init__(self, min_support: float = 0.3, min_confidence: float = 0.7):
         """
         Initialize the Apriori Association Rule Mining algorithm.
@@ -81,7 +114,7 @@ class AprioriAssociation:
         return np.mean(transactions_with_items)
     
     def _generate_rules(self, frequent_itemsets: Dict[frozenset, float], data: np.ndarray, 
-                       features: List[str]) -> List[Tuple[frozenset, frozenset, float, float]]:
+                       features: List[str]) -> List[Tuple[frozenset, frozenset, float, float, float]]:
         """
         Generate association rules that meet the minimum confidence threshold.
         
@@ -91,7 +124,8 @@ class AprioriAssociation:
             features (List[str]): List of feature names
             
         Returns:
-            List[Tuple[frozenset, frozenset, float, float]]: List of rules (antecedent, consequent, support, confidence)
+            List[Tuple[frozenset, frozenset, float, float, float]]: List of rules 
+            (antecedent, consequent, support, confidence, lift)
         """
         rules = []
         
@@ -107,10 +141,15 @@ class AprioriAssociation:
                     
                     # Calculate confidence
                     antecedent_support = self._calculate_support(antecedent, data, features)
+                    consequent_support = self._calculate_support(consequent, data, features)
                     confidence = frequent_itemsets[itemset] / antecedent_support
                     
+                    # Calculate lift
+                    lift = confidence / consequent_support
+                    
                     if confidence >= self.min_confidence:
-                        rules.append((antecedent, consequent, frequent_itemsets[itemset], confidence))
+                        rules.append((antecedent, consequent, frequent_itemsets[itemset], 
+                                   confidence, lift))
         
         return rules
     
@@ -191,18 +230,76 @@ def generate_data(rows: int = 5000) -> Tuple[np.ndarray, List[str]]:
     features = ['A', 'B', 'C', 'D', 'E', 'F']
     return data, features
 
-def format_rule(rule: Tuple[frozenset, frozenset, float, float]) -> str:
+def format_rule(rule: Tuple[frozenset, frozenset, float, float, float]) -> str:
     """
     Format an association rule for display.
     
     Args:
-        rule (Tuple[frozenset, frozenset, float, float]): Association rule
+        rule (Tuple[frozenset, frozenset, float, float, float]): Association rule
         
     Returns:
         str: Formatted rule string
     """
-    antecedent, consequent, support, confidence = rule
-    return f"{' AND '.join(antecedent)} => {' AND '.join(consequent)} (support: {support:.2%}, confidence: {confidence:.2%})"
+    antecedent, consequent, support, confidence, lift = rule
+    return (f"{' AND '.join(antecedent)} => {' AND '.join(consequent)} "
+            f"(support: {support:.2%}, confidence: {confidence:.2%}, lift: {lift:.2f})")
+
+def explain_metrics(data: np.ndarray, features: List[str]):
+    """
+    Explain support, confidence, and lift metrics using concrete examples from the data.
+    """
+    # Example 1: Single item support
+    support_A = np.mean(data[:, 0])
+    total_rows = len(data)
+    rows_with_A = np.sum(data[:, 0])
+    
+    print("\nEXPLAINING ASSOCIATION RULE METRICS")
+    print("===================================")
+    print("\nExample 1: Single Item Support")
+    print(f"Support for item A = {support_A:.2%}")
+    print(f"This means that out of {total_rows} transactions:")
+    print(f"- {rows_with_A} transactions contain A=1")
+    print(f"- Support = {rows_with_A} / {total_rows} = {support_A:.2%}")
+    
+    # Example 2: Itemset support
+    A_and_C = np.logical_and(data[:, 0] == 1, data[:, 2] == 1)
+    support_AC = np.mean(A_and_C)
+    rows_with_AC = np.sum(A_and_C)
+    
+    print("\nExample 2: Itemset Support")
+    print(f"Support for itemset {{'A', 'C'}} = {support_AC:.2%}")
+    print(f"This means that out of {total_rows} transactions:")
+    print(f"- {rows_with_AC} transactions contain both A=1 AND C=1")
+    print(f"- Support = {rows_with_AC} / {total_rows} = {support_AC:.2%}")
+    
+    # Example 3: Rule confidence and lift
+    A_and_C_and_D = np.logical_and(A_and_C, data[:, 3] == 1)
+    support_D = np.mean(data[:, 3])
+    confidence_AC_D = np.sum(A_and_C_and_D) / rows_with_AC
+    lift_AC_D = confidence_AC_D / support_D
+    
+    print("\nExample 3: Rule Confidence and Lift")
+    print("Rule: IF A=1 AND C=1 THEN D=1")
+    print(f"Confidence = {confidence_AC_D:.2%}")
+    print("This means:")
+    print(f"- Out of {rows_with_AC} transactions where A=1 AND C=1")
+    print(f"- {np.sum(A_and_C_and_D)} transactions also have D=1")
+    print(f"- Confidence = {np.sum(A_and_C_and_D)} / {rows_with_AC} = {confidence_AC_D:.2%}")
+    print("- In other words, when we find A=1 AND C=1, there's a")
+    print(f"  {confidence_AC_D:.2%} chance that D=1")
+    
+    print(f"\nLift = {lift_AC_D:.2f}")
+    print("This means:")
+    print(f"- The baseline probability of D=1 is {support_D:.2%}")
+    print(f"- When A=1 AND C=1, the probability increases to {confidence_AC_D:.2%}")
+    print(f"- Lift = {confidence_AC_D:.2%} / {support_D:.2%} = {lift_AC_D:.2f}")
+    print("- In other words, D is", end=" ")
+    if lift_AC_D > 1:
+        print(f"{lift_AC_D:.2f} times more likely when A=1 AND C=1")
+    elif lift_AC_D < 1:
+        print(f"{1/lift_AC_D:.2f} times less likely when A=1 AND C=1")
+    else:
+        print("independent of A AND C (no relationship)")
 
 def main():
     # Generate data
@@ -216,6 +313,9 @@ def main():
     for col, label in enumerate(features):
         proportion = np.mean(data[:, col])
         print(f"Column {label}: {proportion:.2%}")
+    
+    # Explain support and confidence using examples
+    explain_metrics(data, features)
     
     # Find association rules
     print("\nFinding association rules (support ≥ 30%, confidence ≥ 70%)...")
